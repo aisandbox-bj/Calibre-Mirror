@@ -4,7 +4,7 @@ Calibre Mirror (formerly MRP Performance) reuses Calibre Tune's intake and data-
 They are **copies** — Tune is never edited from here. Every local change carries a `PERF-*` tag in a comment so
 a diff against the source shows exactly what differs.
 
-- **Source:** `aisandbox-bj/Inventory_Optimization`, working folder `v2.2.0-dev` at `origin/main` **2896842** (copied 2026-09-25).
+- **Source:** `aisandbox-bj/Inventory_Optimization`, working folder `v2.2.0-dev` at `origin/main` **2896842** (copied 2026-09-25); `trace-phase.js` and `inventory-back-calc.js` re-copied at **9222db4** (2026-09-26) — pristine copies in `_rollback/BORROWED-as-copied-from-tune-9222db4/`.
 - **Pristine copies** of every borrowed file, exactly as copied, are kept beside the working folder in
   `_rollback/BORROWED-as-copied-from-tune-2896842/` (local, not in this repo) with `SHA256SUMS.txt`.
 - **Refresh this table** whenever a borrowed file changes (current SHA-256 column). Last refreshed 2026-09-26 (v0.3.0-dev) — the PERF-NO-SHIFT intake changes of 2026-09-25 had not been recorded here until then.
@@ -17,12 +17,12 @@ a diff against the source shows exactly what differs.
 | `shared/brand-tokens.css` | verbatim | `2f0730a613560c3a…` | `2f0730a613560c3a…` | — |
 | `shared/canonical-schema.js` | modified | `7e9e476a6e9c200c…` | `b16eb43751dbf5ff…` | PERF-INT-TYPE, rename (Calibre Mirror, v0.3.0-dev) |
 | `shared/config.js` | verbatim | `594c45de4531a1c5…` | `594c45de4531a1c5…` | — |
-| `shared/inventory-back-calc.js` | verbatim | `f04114e4f285ed4c…` | `f04114e4f285ed4c…` | — |
+| `shared/inventory-back-calc.js` | verbatim — **re-copied from Tune `9222db4`** (2026-09-26; comment-only change: 107 = received at the 3PL, blocked) | `23db8590a3d4142f…` | `23db8590a3d4142f…` | — |
 | `shared/locale.js` | verbatim | `86b558ba9646ad98…` | `86b558ba9646ad98…` | — |
 | `shared/parsers.js` | modified | `c092f9b943dae32e…` | `52b85937d5d5b28f…` | PERF-ALIASES, PERF-DATE-YMD, PERF-PARSE-FAST |
 | `shared/pipeline.js` | modified | `4e5235be41aa1628…` | `98004a4f1150c1f4…` | PERF-STORE-NS |
 | `shared/storage.js` | modified | `4a2511269d47069a…` | `29b766281c9d2d06…` | PERF-STORE-NS (comment updated for the rename) |
-| `shared/trace-phase.js` | verbatim | `bd7101a5c4ca8e13…` | `bd7101a5c4ca8e13…` | — |
+| `shared/trace-phase.js` | verbatim — **re-copied from Tune `9222db4`** (2026-09-26; quantity-weighted split deliveries, first use 261/201, unfinished steps blank) — the engine parity check compares against this | `c292b8fcdf9cb691…` | `c292b8fcdf9cb691…` | — |
 
 ## What the PERF tags mean
 

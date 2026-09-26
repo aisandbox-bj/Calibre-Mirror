@@ -381,6 +381,26 @@ git -C peek push --force-with-lease origin main
 
   <div class="roc-list">
 
+    <!-- v0.3.0-dev follow-up - MIRROR-WEIGHTED - 2026-09-26 -->
+    <article class="roc-entry dev">
+      <div class="head">
+        <span class="ver">v0.3.0</span>
+        <span class="date">2026-09-26</span>
+        <span class="tag dev">dev</span>
+      </div>
+      <h4>v0.3.0-dev follow-up — <b>Delivery lead times aligned with Calibre Tune: quantity-weighted split deliveries, first use = 261 or 201</b> (MIRROR-WEIGHTED) — <b>browser-verified; pending operator validation</b></h4>
+      <ul>
+        <li><b>Why:</b> heads-up from the Tune session (Tune <code>9222db4</code>, operator decisions 2026-09-26) — both apps must measure delivery lead times the same way.</li>
+        <li><b>Split deliveries:</b> a PO received in several lots now uses the <b>quantity-weighted</b> 107 / 109 date (Σ qty × day ÷ Σ qty, whole days; equal weights if every qty is 0) in every lead-time leg — supplier, 3PL, shelf time, end to end, against need-by. Was the first lot. The physical first dates still drive stock cover and "at the 3PL now". Split lots (how many, first → last), the PO's total received qty and a shared-PO flag are in the drill Excel and the deep-dive chain panel.</li>
+        <li><b>First use</b> = the first work-order (261) <b>or cost-centre (201)</b> issue on / after the first site-receipt lot (was 261 only); shelf time runs from the weighted receipt and is 0 when the part was used before it.</li>
+        <li><b>Tune's chain and stock modules re-copied unchanged at <code>9222db4</code></b> (PROVENANCE refreshed; pristine copies kept locally) — so the parity check compares against Tune's new rules.</li>
+        <li><b>Effect on the June data:</b> supplier leg P90 39 → 48 d (mean 18.4 → 21.0); end to end median 29 → 30 d, P90 72 → 73 d; 14 orders move from "not yet used" to completed (201 issues); 49 materials' median end-to-end lead time got longer, none shorter, largest 1021776 94 → 191 d (Tune reports the same material 93 → 190 on its average). <b>Parity 2,351 / 2,351 chains</b> against Tune's new logic · 275 / 275 stock series.</li>
+        <li><b>Found — not hidden (applies to Tune's rule too; decision queued):</b> 2 chains' 3PL leg is now <i>out of sequence</i> (weighted 109 before weighted 107). Causes: (1) <b>reversals are not netted</b> — 1000574 / PO 9600000676 had its 107 and 109 lots reversed (108 / 110) before a clean re-receipt, and the reversed lots still pull the weighted dates (21 of 1,087 PO + material pairs have reversals); (2) <b>part-delivered POs</b> — 1003380 / PO 9600010854 has a second lot at the 3PL (107) not yet at site, so the weighted 107 includes it while the weighted 109 doesn't (15 pairs are partly at site). Tune shows these as 0 days; Mirror lists them in the out-of-sequence bin. Proposed fixes for a joint decision: net 108 / 110 against their lots before weighting; on a part-delivered PO weight the 107 date only over the quantity that has reached site.</li>
+        <li><b>Still open (same as Tune):</b> several PR lines on one PO each inherit that PO's supplier / 3PL legs (105 PR lines on shared POs in the June data) — waiting on the operator's PR → PO list.</li>
+      </ul>
+      <div class="commit rollback"><b>Rollback.</b> Remote <code>backup/pre-MIRROR-WEIGHTED</code> + <code>checkpoint/pre-MIRROR-WEIGHTED</code>; local <code>_rollback/MIRROR-WEIGHTED-pre/</code>.</div>
+    </article>
+
     <!-- v0.3.0-dev follow-up - MIRROR-FILTER2 - 2026-09-26 -->
     <article class="roc-entry dev">
       <div class="head">

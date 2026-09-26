@@ -53,8 +53,12 @@
     return isNaN(d.getTime()) ? null : d;
   }
   function fmtISO(d){ if (!d) return null; return d.toISOString().slice(0, 10); }
+  // APP-FIX-RAW-OPENSTEP (2026-09-25) — a step whose end (or start) hasn't
+  // happened yet has NO duration: null, not 0. Returning 0 showed "0 days" for
+  // unfinished steps in Raw Data / the report tables, and fed fake zeros into the
+  // phase stats (e.g. delivered-but-unused chains counted as 0d Time to First Use).
   function days(a, b){
-    if (!a || !b) return 0;
+    if (!a || !b) return null;
     const ms = b - a;
     if (ms < 0) return 0;
     return Math.round(ms / 86400000);
@@ -77,25 +81,46 @@
     const prRows = prHistory.filter(r => String(r.material || '').trim() === material);
 
     const mb51ForMat = mb51.filter(r => String(r.material || '').trim() === material);
-    const firstByPoMvt = new Map();
+    // APP-TRACE-WEIGHTED (2026-09-26, operator decision) — split deliveries. A PO
+    // received in several lots has several 107 (arrived at 3PL, blocked stock) and/or
+    // 109 (received at site, stock available) rows. Per the Trace spec, the delivery
+    // date used in EVERY lead-time calc is the QUANTITY-WEIGHTED date:
+    //   weighted = Σ(qty_i × day_i) / Σ qty_i   (whole days; equal weights if all qty 0)
+    // Was: the FIRST row's date and qty only. Kept per PO+movement for transparency:
+    // n lines, first / last date, total qty.
+    const byPoMvt = new Map();
     for (const r of mb51ForMat) {
       const po = String(r.purchaseOrder || '').trim();
       const mvt = String(r.movementType || '').trim();
-      if (!po || !mvt) continue;
-      const key = po + '|' + mvt;
+      if (!po || (mvt !== '107' && mvt !== '109')) continue;
       const d = parseISO(r.postingDate);
       if (!d) continue;
-      const existing = firstByPoMvt.get(key);
-      if (!existing || d < existing.date) {
-        firstByPoMvt.set(key, { date: d, qty: numOr(r.quantity, 0) });
-      }
+      const key = po + '|' + mvt;
+      const q = Math.abs(numOr(r.quantity, 0));
+      const dayN = d.getTime() / 86400000;
+      const a = byPoMvt.get(key) || { n: 0, sumQ: 0, sumQD: 0, sumD: 0, first: null, last: null };
+      a.n++; a.sumQ += q; a.sumQD += q * dayN; a.sumD += dayN;
+      if (!a.first || d < a.first) a.first = d;
+      if (!a.last  || d > a.last)  a.last  = d;
+      byPoMvt.set(key, a);
+    }
+    for (const a of byPoMvt.values()) {
+      const w = a.sumQ > 0 ? a.sumQD / a.sumQ : a.sumD / a.n;
+      a.date = new Date(Math.round(w) * 86400000);   // weighted date, whole day (UTC)
     }
 
+    // First use = the first consumption: a work-order issue (261) OR a cost-centre
+    // issue (201) — the same movements "Last consumption" counts (APP-TRACE-FIRSTUSE,
+    // operator 2026-09-26; was 261 only, which left a chain "not yet consumed" when
+    // the part had in fact been issued to a cost centre).
     const cons261 = mb51ForMat
-      .filter(r => String(r.movementType || '').trim() === '261')
+      .filter(r => { const mt = String(r.movementType || '').trim(); return mt === '261' || mt === '201'; })
       .map(r => parseISO(r.postingDate))
       .filter(Boolean)
       .sort((a, b) => a - b);
+    // How many PRs of THIS material sit on each PO (a PO can combine several PRs).
+    const prsPerPo = new Map();
+    for (const r of prRows) { const po = String(r.purchaseOrder || '').trim(); if (po) prsPerPo.set(po, (prsPerPo.get(po) || 0) + 1); }
 
     return prRows.map(r => {
       const pr        = String(r.pr || '').trim();
@@ -103,10 +128,19 @@
       const prDate    = parseISO(r.prDate);
       const relDate   = parseISO(r.releaseDate);
       const poDate    = parseISO(r.poDate);
-      const gr3pl     = po ? (firstByPoMvt.get(po + '|107')?.date || null) : null;
-      const siteWH    = po ? (firstByPoMvt.get(po + '|109')?.date || null) : null;
-      const qtyAtWH   = po ? (firstByPoMvt.get(po + '|109')?.qty || 0)      : 0;
-      const c261      = siteWH ? cons261.find(d => d >= siteWH) || null : null;
+      const a107      = po ? (byPoMvt.get(po + '|107') || null) : null;
+      const a109      = po ? (byPoMvt.get(po + '|109') || null) : null;
+      const gr3pl     = a107 ? a107.date : null;                 // weighted arrival at 3PL
+      const siteWH    = a109 ? a109.date : null;                 // weighted receipt at site
+      // Consumed? — any use on/after the FIRST site receipt (a split delivery can be
+      // used before its weighted date). Shelf time E runs weighted receipt → that use;
+      // if the use came before the weighted date, E is 0 (days() floors negatives).
+      const c261      = a109 ? cons261.find(d => d >= a109.first) || null : null;
+      // Qty: total received at site on this PO. When several PRs of this material
+      // share the PO, the PO's total would repeat on each — show the PR's own
+      // requested qty instead (shared-PO handling of phases is pending, see RoC).
+      const sharedPo  = !!po && (prsPerPo.get(po) || 0) > 1;
+      const qtyAtWH   = (a109 && !sharedPo) ? a109.sumQ : 0;
 
       // APP-FIX-T-04c — cancellation = deletion flag AND processingStatus 'N'.
       const cancelled = String(r.deletionIndicator || '').toLowerCase() === 'true'
@@ -124,7 +158,9 @@
       const C = days(poDate, gr3pl);
       const D = days(gr3pl, siteWH);
       const E = days(siteWH, c261);
-      const total = [A, B, C, D, E].reduce((s, x) => s + (x || 0), 0);
+      // Total = sum of the steps that have happened; null when none has (blank, not 0).
+      const total = [A, B, C, D, E].some(x => x != null)
+        ? [A, B, C, D, E].reduce((s, x) => s + (x || 0), 0) : null;
       // APP-FIX-SIGMA-PROC (2026-06-27) — processing timeline only (phases A–D,
       // "total to site"); excludes phase E (Time to First Use / shelf time).
       // Sigma outlier-trim keys off this: trim on procurement time, not on how
@@ -153,6 +189,10 @@
         releaseBad,
         qty:      qtyAtWH || numOr(r.qtyRequested, 0),
         qtySource: qtyAtWH ? 'MB51-109' : 'PR-requested',
+        // APP-TRACE-WEIGHTED — split-delivery transparency (n lines, first → last)
+        split107: a107 && a107.n > 1 ? { n: a107.n, first: fmtISO(a107.first), last: fmtISO(a107.last), qty: a107.sumQ } : null,
+        split109: a109 && a109.n > 1 ? { n: a109.n, first: fmtISO(a109.first), last: fmtISO(a109.last), qty: a109.sumQ } : null,
+        sharedPo,
         state:    state_,
         cancelled,
         adminCancelled,
@@ -271,6 +311,50 @@
       if (s) sum += s.mean;
     }
     return sum;
+  }
+
+  /* APP-LT-GAP (2026-09-26) — WHY a material that has PR History shows no lead
+     time. The lead time needs at least one order that is (a) in PR History with a
+     PO number and (b) received at site (MB51 109) under THAT PO number. When none
+     qualifies we say which link is missing instead of a bare "—" (credibility:
+     explain the blank, never guess a match). `chains` = computeChains(); `active`
+     = after Trace exclusions. Returns { code, short, detail } or null.            */
+  function leadTimeGap(json, material, chains, active){
+    chains = chains || []; active = active || chains;
+    if (active.some(c => c.siteWH)) return null;           // there IS a lead time
+    const mb51 = (json && json.data && json.data.mb51) || [];
+    const site = [];   // this material's site receipts (109)
+    let lastMb = null; // end of the whole MB51 extract (not just this material)
+    for (const r of mb51){
+      const d = r.postingDate ? String(r.postingDate).slice(0, 10) : null;
+      if (d && (!lastMb || d > lastMb)) lastMb = d;
+      if (String(r.material || '').trim() !== material) continue;
+      if (String(r.movementType || '').trim() === '109') site.push(r);
+    }
+    const chainPos = new Set(chains.map(c => c.po).filter(Boolean));
+    if (chains.some(c => c.siteWH)){
+      return { code:'excluded', short:'received orders excluded in Trace',
+        detail:'This material has orders received at site, but every one of them is excluded on the Trace page (manual exclusions or the sigma trim). Include one again in Trace to get a lead time.' };
+    }
+    const orphan = site.filter(r => !chainPos.has(String(r.purchaseOrder || '').trim()));
+    const withPo = chains.filter(c => c.po);
+    const inFlight = withPo.filter(c => c.state === 'IN_FLIGHT');
+    const notInMb = inFlight.filter(c => !mb51.some(r => String(r.purchaseOrder || '').trim() === c.po && String(r.material || '').trim() === material));
+    const at3pl = inFlight.filter(c => c.gr3pl);
+    const parts = [];
+    if (orphan.length){
+      const pos = [...new Set(orphan.map(r => String(r.purchaseOrder || '').trim() || '(no PO number)'))];
+      parts.push(`${orphan.length} site receipt${orphan.length === 1 ? '' : 's'} (MB51 109) came in under PO${pos.length === 1 ? '' : 's'} ${pos.slice(0, 4).join(', ')}${pos.length > 4 ? '…' : ''}, which ${pos.length === 1 ? 'has' : 'have'} no PR for this material in the PR History extract — so there is no PR date to time ${orphan.length === 1 ? 'it' : 'them'} from (the PR was raised before the extract window, or the PO was raised without a PR).`);
+    }
+    if (notInMb.length) parts.push(`${notInMb.length} PO${notInMb.length === 1 ? '' : 's'} from PR History (${notInMb.slice(0, 4).map(c => c.po).join(', ')}) never appear${notInMb.length === 1 ? 's' : ''} in MB51${lastMb ? ' (MB51 runs to ' + lastMb + ')' : ''} — not received yet, received after the extract, or received under a different PO number.`);
+    if (at3pl.length) parts.push(`${at3pl.length} PO${at3pl.length === 1 ? ' is' : 's are'} at the 3PL (107) with no site receipt (109) yet.`);
+    if (!withPo.length) parts.push('No PO has been raised against any of its PRs yet (open or cancelled PRs only).');
+    const short = orphan.length ? `${orphan.length} site receipt${orphan.length === 1 ? '' : 's'} not linked to a PR`
+      : !withPo.length ? 'no PO raised yet'
+      : at3pl.length && at3pl.length === inFlight.length ? 'at 3PL, not yet at site'
+      : 'no order received at site yet';
+    return { code: orphan.length ? 'unlinked' : (!withPo.length ? 'no-po' : 'in-flight'), short,
+      detail: parts.join(' ') + ' Lead time only counts orders that are in PR History AND received at site (109) under the same PO number.' };
   }
 
   // "Nice" axis tick generator — 1/2/5 × 10^n stepping for round numbers
@@ -439,7 +523,7 @@
                 <div class="pd-chev-inner">
                   <span class="pd-chev-code">${p.key}</span>
                   <span class="pd-chev-name">${p.label}</span>
-                  <span class="pd-chev-val">${p.stats ? p.stats.mean.toFixed(1) : '—'}d</span>
+                  <span class="pd-chev-val">${p.stats ? p.stats.mean.toFixed(1) + 'd' : '—'}</span>
                 </div>
               </div>
             `).join('')}
@@ -452,7 +536,7 @@
           <div class="pd-chev-shelf" style="border-color:${ePhase.color}; background:${ePhase.color}1f;" title="Average time the material sits on the shelf after arriving at site, before its first consumption (phase E). Not part of the lead-time-to-availability total.">
             <span class="pd-chev-shelf-lab">then on shelf</span>
             <span class="pd-chev-shelf-name">${ePhase.key} · ${ePhase.label}</span>
-            <span class="pd-chev-shelf-val" style="color:${ePhase.color};">${ePhase.stats ? eMean.toFixed(1) : '—'}d</span>
+            <span class="pd-chev-shelf-val" style="color:${ePhase.color};">${ePhase.stats ? eMean.toFixed(1) + 'd' : '—'}</span>
           </div>` : ''}
         </div>
       </div>
@@ -576,6 +660,7 @@
     renderPhaseEmpty,
     renderPhaseVisual,
     totalToSiteMean,
+    leadTimeGap,
     render
   };
 

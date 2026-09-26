@@ -967,7 +967,8 @@
     ['Months of cover', r => r._i.monthsCover == null ? 'not moving' : Math.round(r._i.monthsCover * 10) / 10],
     ['Months with an issue (last 12)', r => r._i.consMonths12], ['Unit cost', r => r._i.map],
     ['PR', r => r.pr], ['PR item', r => r.prItem], ['Created by', r => r.trig], ['PR date', r => xDate(r.prD)], ['PR qty', r => r.qty], ['Released', r => xDate(r.rel)],
-    ['PO', r => r.po], ['PO date', r => xDate(r.poD)], ['At 3PL (107)', r => xDate(r.g107)], ['At site (109)', r => xDate(r.g109)], ['Need-by', r => xDate(r.need)],
+    ['PO', r => r.po], ['PO date', r => xDate(r.poD)], ['At 3PL (107, qty-weighted)', r => xDate(r.g107)], ['107 split lots', r => r.lots107 || null],
+    ['At site (109, qty-weighted)', r => xDate(r.g109)], ['109 split lots', r => r.lots109 || null], ['Received at site qty (PO total)', r => r.rcvQty], ['PO shared with other PR lines', r => r.sharedPo || null], ['Need-by', r => xDate(r.need)],
     ['Phase', r => r.phase], ['Days in phase', r => r.v], ['Status', r => r.st === 'open' ? 'in flight (days = age so far)' : r.st === 'oos' ? 'out of sequence' : r.st === 'done' ? 'completed' : r.st],
     ['Path', r => r.path], ['Days past SAP need-by (indicative)', r => r.overdue > 0 ? r.overdue : null]
   ];
@@ -1010,7 +1011,9 @@
       ['Past SAP need-by', "The PR's Delivery Date from SAP — indicative only; days past it with no site receipt (or received after it)."],
       ['Stock / Min / Max / SS', 'Today\'s Inventory Master values (as of the data date); earlier changes can\'t be seen.'],
       ['Continuous use', 'Issued (261 / 201 / 221 / 291 / 551) in at least 6 of the 12 months to the data date.'],
-      ['107 / 109', '107 = arrived at the 3PL (blocked stock); 109 = received at site.']
+      ['107 / 109', '107 = received at the 3PL (stock, blocked); 109 = received at site (stock available).'],
+      ['Split deliveries', 'A PO received in several lots uses the quantity-weighted 107 / 109 date in every lead time (same rule as Calibre Tune); the lots columns show how many and first → last.'],
+      ['First use', 'The first work-order (261) or cost-centre (201) issue on or after the first site-receipt lot.']
     ], [26, 90]);
     const safe = (x) => String(x).replace(/[^A-Za-z0-9_.-]+/g, '_').replace(/_+/g, '_').slice(0, 80);
     XLSX.writeFile(wb, `${safe(dsName())}-${safe(d.title)}.xlsx`, { compression: true });
@@ -1040,7 +1043,9 @@
         const overdue = c.needD == null ? null : (c.g109 != null ? c.g109 - c.needD : asOf - c.needD);   // days past need-by (received late, or still not received)
         return { material: c.material, desc: i.description, mfr: i.manufacturer, mrp: i.mrpType, stock: i.stockStatus, cover: i.monthsCover, trig: c.trig, pr: c.pr, prItem: c.prItem, prD: iso(c.prD), qty: c.qty, rel: iso(c.relD),
                  po: c.po, poD: iso(c.poD), g107: iso(c.g107), g109: iso(c.g109), need: iso(c.needD), v: x.v, st: (x.s === 'done' && !M.signed && x.v < 0) ? 'oos' : x.s,
-                 overdue: overdue > 0 ? overdue : null, path: c.path };
+                 overdue: overdue > 0 ? overdue : null, path: c.path,
+                 lots107: c.split107 ? `${c.split107.n} lots ${iso(c.split107.first)} → ${iso(c.split107.last)}` : '', lots109: c.split109 ? `${c.split109.n} lots ${iso(c.split109.first)} → ${iso(c.split109.last)}` : '',
+                 rcvQty: c.rcvQty, sharedPo: c.sharedPo ? 'yes' : '' };
       },
       sort: { key: 'v', dir: -1 }
     },

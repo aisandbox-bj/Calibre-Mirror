@@ -527,8 +527,8 @@
   function chainTipRows(c){
     const rows = [
       { value: c.trig, label: 'trigger' }, { value: iso(c.prD) || '—', label: 'PR created' }, { value: iso(c.relD) || '—', label: 'released' },
-      { value: iso(c.poD) || '—', label: 'PO raised' }, { value: iso(c.g107) || '—', label: 'at 3PL (107)', color: PAL.s3 },
-      { value: iso(c.g109) || '—', label: 'at site (109)', color: PAL.s4 }, { value: iso(c.needD) || '—', label: 'need-by' }
+      { value: iso(c.poD) || '—', label: 'PO raised' }, { value: iso(c.g107) || '—', label: 'at 3PL (107)' + (c.split107 ? ` — weighted, ${c.split107.n} lots` : ''), color: PAL.s3 },
+      { value: iso(c.g109) || '—', label: 'at site (109)' + (c.split109 ? ` — weighted, ${c.split109.n} lots` : ''), color: PAL.s4 }, { value: iso(c.needD) || '—', label: 'SAP need-by' }
     ];
     for (const k of ['A', 'B', 'C', 'D', 'E2E']) { const x = c.st[k]; if (x.s === 'done' || x.s === 'open' || x.s === 'oos') rows.push({ value: (x.s === 'open' ? '≥ ' : '') + fmt(x.v) + ' d' + (x.s === 'oos' ? ' !' : ''), label: E.METRICS[k].label }); }
     return rows;
@@ -544,7 +544,9 @@
     host.innerHTML = `<div class="chain-grid">
         <div><span>Trigger</span><b>${esc(c.trig)}</b></div><div><span>Qty requested</span><b>${fmt(c.qty)}</b></div><div><span>Path</span><b>${esc(c.path)}</b></div>
         <div><span>PR created</span><b>${esc(iso(c.prD) || '—')}</b></div><div><span>Released</span><b>${esc(iso(c.relD) || '—')}</b></div><div><span>PO raised</span><b>${esc(iso(c.poD) || '—')}</b></div>
-        <div><span>At 3PL (107)</span><b>${esc(iso(c.g107) || '—')}</b></div><div><span>At site (109)</span><b>${esc(iso(c.g109) || '—')}</b></div><div><span>First use</span><b>${esc(iso(c.use) || '—')}</b></div>
+        <div><span>At 3PL (107)${c.split107 ? ' · weighted' : ''}</span><b>${esc(iso(c.g107) || '—')}</b>${c.split107 ? `<small class="muted"> ${c.split107.n} lots ${esc(iso(c.split107.first))} → ${esc(iso(c.split107.last))}</small>` : ''}</div>
+        <div><span>At site (109)${c.split109 ? ' · weighted' : ''}</span><b>${esc(iso(c.g109) || '—')}</b>${c.split109 ? `<small class="muted"> ${c.split109.n} lots ${esc(iso(c.split109.first))} → ${esc(iso(c.split109.last))}</small>` : ''}</div>
+        <div><span>First use (261 / 201)</span><b>${esc(iso(c.use) || '—')}</b></div>
         <div><span>Need-by</span><b>${esc(iso(c.needD) || '—')}</b></div><div><span>Planned lead time</span><b>${c.planLT == null ? '—' : fmt(c.planLT) + ' d'}</b></div><div><span>Changed on</span><b>${esc(iso(c.chgD) || '—')}</b></div>
         <div><span>Approval</span><b>${cell('A')}</b></div><div><span>Buyer</span><b>${cell('B')}</b></div><div><span>Supplier</span><b>${cell('C')}</b></div>
         <div><span>3PL</span><b>${cell('D')}</b></div><div><span>PR → site</span><b>${cell('E2E')}</b></div><div><span>vs need-by</span><b>${cell('PLAN')}</b></div>

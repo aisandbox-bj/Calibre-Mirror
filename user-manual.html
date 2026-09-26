@@ -97,6 +97,7 @@ table.m td:first-child{ color:var(--text-pri); white-space:nowrap; }
       <li><b>Number tiles</b> (movement, consumption events, consumption value, unit cost, stock value, stock on hand, material lead time, PR lines) have three modes: <b>Quartile</b> — tick Q1–Q4; the tile shows each quartile's cut points, and they're cut across all materials so they don't move as you add tiles · <b>Top / bottom %</b> · <b>Range</b> (min / max).</li>
       <li><b>Pick-list tiles</b> (manufacturer, MRP type, material group, purchasing group, stock status) — search, tick values, choose <b>Include</b> or <b>Exclude</b>.</li>
       <li><b>Number tiles can exclude too</b> — e.g. <i>Months of cover → Range, min 12 → Exclude</i> leaves the over-stocked parts out of every view; set it back to Include to look at only them. <b>Months of cover</b> = stock on hand ÷ average monthly use over the last 12 months; <i>None</i> = not moving (no use in 12 months).</li>
+      <li><b>Split deliveries</b> (a PO received in several lots) use the <b>quantity-weighted</b> 107 / 109 date in every lead time — the same rule as Calibre Tune. <b>First use</b> is the first work-order (261) or cost-centre (201) issue on or after the first site receipt.</li>
       <li><b>Material / text</b> — number or description contains.</li>
       <li><b>PR trigger</b> — MRP-created, manual or unknown; applies to PR lines, not to stock events.</li>
     </ul>

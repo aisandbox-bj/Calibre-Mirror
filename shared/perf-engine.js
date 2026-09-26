@@ -69,6 +69,9 @@
   function round1(x){ return Math.round(x * 10) / 10; }
 
   /* first element ≥ x in a sorted numeric array (or null) */
+  /* MIRROR-WEIGHTED — lot accumulator for split deliveries (per PO + movement) */
+  function lotAdd(a, d, q){ a = a || { n: 0, sumQ: 0, sumQD: 0, sumD: 0, first: null, last: null }; a.n++; a.sumQ += q; a.sumQD += q * d; a.sumD += d; if (a.first == null || d < a.first) a.first = d; if (a.last == null || d > a.last) a.last = d; return a; }
+  function lotWeighted(a){ if (!a || !a.n) return null; return Math.round(a.sumQ > 0 ? a.sumQD / a.sumQ : a.sumD / a.n); }
   function firstGE(arr, x){
     let lo = 0, hi = arr.length;
     while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid] < x) lo = mid + 1; else hi = mid; }
@@ -240,8 +243,11 @@
       const im     = imBy.get(m) || null;
 
       /* receipts per PO (107 / 109 / reversals) + consumption days */
-      const rc = new Map();                 // po → { f107, f109, r109:[{d,q}], mv:Set }
-      const cons261 = [];
+      const rc = new Map();                 // po → { f107, f109, r109:[{d,q}], mv:Set, a107, a109, w107, w109 }
+      /* MIRROR-WEIGHTED (aligned with Calibre Tune 9222db4, operator decision
+         2026-09-26) — first use = the first work-order (261) OR cost-centre (201)
+         issue on / after the FIRST site-receipt lot (was 261 only). */
+      const consUse = [];
       let consQty = 0;                      // net consumption in window (for reorder frequency)
       let consEvents = 0;                   // consumption movements (261 / 201 …) in window — segment attribute
       const consMonthSet = new Set();       // MIRROR-DRILL — calendar months with an issue in the 12 months to "as of"
@@ -254,13 +260,13 @@
         if (!description && r.description) description = trim(r.description);
         const po = trim(r.purchaseOrder);
         if (po && d != null) {
-          let e = rc.get(po); if (!e) { e = { f107: null, f109: null, q107: 0, r109: [], mv: new Set() }; rc.set(po, e); }
+          let e = rc.get(po); if (!e) { e = { f107: null, f109: null, q107: 0, r109: [], mv: new Set(), a107: null, a109: null, w107: null, w109: null }; rc.set(po, e); }
           e.mv.add(mt);
           const q = Math.abs(num(r.quantity) || 0);
-          if (mt === '107') { if (e.f107 == null || d < e.f107) e.f107 = d; e.q107 += q; }
-          if (mt === '109') { if (e.f109 == null || d < e.f109) e.f109 = d; e.r109.push({ d, q }); }
+          if (mt === '107') { if (e.f107 == null || d < e.f107) e.f107 = d; e.q107 += q; e.a107 = lotAdd(e.a107, d, q); }
+          if (mt === '109') { if (e.f109 == null || d < e.f109) e.f109 = d; e.r109.push({ d, q }); e.a109 = lotAdd(e.a109, d, q); }
         }
-        if (mt === '261' && d != null) cons261.push(d);
+        if ((mt === '261' || mt === '201') && d != null) consUse.push(d);
         if (d != null && d > asOf - 365 && d <= asOf) {
           if (CONS_ISSUE.has(mt)) { consMonthSet.add(ym(d)); cons12Qty += Math.abs(num(r.quantity) || 0); }
           else if (CONS_REV.has(mt)) cons12Qty -= Math.abs(num(r.quantity) || 0);
@@ -276,8 +282,11 @@
           else if (CONS_REV.has(mt)) consQty -= Math.abs(qRaw);
         }
       }
-      cons261.sort((a, b) => a - b);
-      for (const e of rc.values()) e.r109.sort((a, b) => a.d - b.d);
+      consUse.sort((a, b) => a - b);
+      for (const e of rc.values()) { e.r109.sort((a, b) => a.d - b.d); e.w107 = lotWeighted(e.a107); e.w109 = lotWeighted(e.a109); }
+      /* how many PR lines of this material sit on each PO (a PO can combine PRs) */
+      const prsPerPo = new Map();
+      for (const r of prRows) { const po = trim(r.purchaseOrder); if (po) prsPerPo.set(po, (prsPerPo.get(po) || 0) + 1); }
 
       /* receipt-path mix (per PO+material in MB51) */
       for (const [po, e] of rc) {
@@ -332,8 +341,13 @@
         const needD = dn(r.deliveryDate), chgD = dn(r.changedOn);
         const po = trim(r.purchaseOrder);
         const e  = po ? rc.get(po) : null;
-        const g107 = e ? e.f107 : null, g109 = e ? e.f109 : null;
-        const use  = g109 != null ? firstGE(cons261, g109) : null;
+        /* MIRROR-WEIGHTED — split deliveries: every lead-time leg (supplier C,
+           3PL D, shelf E, end to end, against need-by) uses the QUANTITY-WEIGHTED
+           107 / 109 date per PO: Σ(qty × day) ÷ Σ qty, whole days (equal weights
+           when every qty is 0). Was the first lot. Physical first dates stay on
+           the receipt record for cover and "at the 3PL now". */
+        const g107 = e ? e.w107 : null, g109 = e ? e.w109 : null;
+        const use  = (e && e.f109 != null) ? firstGE(consUse, e.f109) : null;
         const cancelled = trim(r.deletionIndicator).toLowerCase() === 'true'
                        && trim(r.processingStatus).toUpperCase() === 'N';
         const releaseBad = relD == null || (prD != null && relD < prD) || (poD != null && relD > poD);
@@ -367,7 +381,9 @@
         if (g107 == null) D = g109 != null ? st(null, 'bypass') : st(null, 'na');
         else if (g109 != null) D = g109 - g107 < 0 ? st(g109 - g107, 'oos') : st(g109 - g107, 'done');
         else D = st(asOf - g107, 'open');
-        const E = g109 == null ? st(null, 'na') : (use != null ? st(use - g109, 'done') : st(asOf - g109, 'open'));
+        /* shelf time runs from the weighted receipt; a use between the first lot
+           and the weighted date is 0 days (not out of sequence — Tune's rule) */
+        const E = g109 == null ? st(null, 'na') : (use != null ? st(Math.max(0, use - g109), 'done') : st(asOf - g109, 'open'));
         let E2E;
         if (prD == null) E2E = st(null, 'na');
         else if (g109 != null) E2E = g109 - prD < 0 ? st(g109 - prD, 'oos') : st(g109 - prD, 'done');
@@ -395,6 +411,11 @@
           material: m, pr: trim(r.pr), prItem: trim(r.prItem), po, trig,
           prD, relD, poD, g107, g109, use, needD, chgD,
           qty, purchasingGroup: trim(r.purchasingGroup) || '(none)',
+          /* MIRROR-WEIGHTED — transparency: split lots per PO, received total, shared PO */
+          split107: (e && e.a107 && e.a107.n > 1) ? { n: e.a107.n, first: e.a107.first, last: e.a107.last, qty: e.a107.sumQ } : null,
+          split109: (e && e.a109 && e.a109.n > 1) ? { n: e.a109.n, first: e.a109.first, last: e.a109.last, qty: e.a109.sumQ } : null,
+          sharedPo: !!po && (prsPerPo.get(po) || 0) > 1,
+          rcvQty: (e && e.a109 && !((prsPerPo.get(po) || 0) > 1)) ? e.a109.sumQ : null,
           cancelled, churn, releaseBad, path,
           cancelLag: (endedNoPo && chgD != null && prD != null) ? chgD - prD : null,
           st: { A, B, AB, C, D, E, E2E, PLAN }, planLT: PLANLT,
