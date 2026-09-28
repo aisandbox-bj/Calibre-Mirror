@@ -22,7 +22,7 @@ a diff against the source shows exactly what differs.
 | `shared/parsers.js` | modified | `c092f9b943dae32e…` | `52b85937d5d5b28f…` | PERF-ALIASES, PERF-DATE-YMD, PERF-PARSE-FAST |
 | `shared/pipeline.js` | modified | `4e5235be41aa1628…` | `98004a4f1150c1f4…` | PERF-STORE-NS |
 | `shared/storage.js` | modified | `4a2511269d47069a…` | `29b766281c9d2d06…` | PERF-STORE-NS (comment updated for the rename) |
-| `shared/trace-phase.js` | verbatim — **re-copied from Tune `9222db4`** (2026-09-26; quantity-weighted split deliveries, first use 261/201, unfinished steps blank) — the engine parity check compares against this | `c292b8fcdf9cb691…` | `c292b8fcdf9cb691…` | — |
+| `shared/trace-phase.js` | verbatim — **re-copied from Tune `5125571`** (2026-09-27; bundled POs count the delivery once, PR lines on one PO merged, chain ids; before that `9222db4`: weighted split deliveries, first use 261/201) — the engine parity check compares against this | `df4b4027a8920992…` | `df4b4027a8920992…` | — |
 
 ## What the PERF tags mean
 

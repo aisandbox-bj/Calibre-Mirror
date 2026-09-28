@@ -541,7 +541,7 @@
     chainDock.open(`PR ${esc(c.pr)}${c.prItem ? ' / ' + esc(c.prItem) : ''}${c.po ? ' → PO ' + esc(c.po) : ''}<small>highlighted on the Procurement chains block</small>`);
     const host = chainDock.body;
     const cell = (k) => { const x = c.st[k]; return x.s === 'done' ? fmt(x.v) + ' d' : x.s === 'open' ? '≥ ' + fmt(x.v) + ' d (open)' : x.s === 'oos' ? `<span class="amber">${fmt(x.v)} d — out of sequence</span>` : `<span class="muted">${esc(x.s)}</span>`; };
-    host.innerHTML = `<div class="chain-grid">
+    host.innerHTML = `${c.prsOnPo > 1 || c.lines > 1 ? `<div class="muted-note" style="margin:0 0 8px">${c.prsOnPo > 1 ? `PO shared by ${c.prsOnPo} requisitions of this material — supplier, 3PL and shelf time count once for the PO. ` : ''}${c.lines > 1 ? `${c.lines} lines of this requisition (items ${esc(c.prItem.replace(/\+/g, ', '))}) are on this PO — shown as one order, quantities added.` : ''}</div>` : ''}<div class="chain-grid">
         <div><span>Trigger</span><b>${esc(c.trig)}</b></div><div><span>Qty requested</span><b>${fmt(c.qty)}</b></div><div><span>Path</span><b>${esc(c.path)}</b></div>
         <div><span>PR created</span><b>${esc(iso(c.prD) || '—')}</b></div><div><span>Released</span><b>${esc(iso(c.relD) || '—')}</b></div><div><span>PO raised</span><b>${esc(iso(c.poD) || '—')}</b></div>
         <div><span>At 3PL (107)${c.split107 ? ' · weighted' : ''}</span><b>${esc(iso(c.g107) || '—')}</b>${c.split107 ? `<small class="muted"> ${c.split107.n} lots ${esc(iso(c.split107.first))} → ${esc(iso(c.split107.last))}</small>` : ''}</div>
@@ -571,7 +571,7 @@
       return { label: yr, n: cs.length, legs: LEG.map(L => {
         const M = E.METRICS[L.k];
         const done = [], open = [];
-        for (const c of cs) { const s = M.stage(c); if (s.s === 'done' && s.v >= 0) done.push(s.v); else if (s.s === 'open') open.push(s.v); }
+        for (const c of E.perPoChains(cs, M)) { const s = M.stage(c); if (s.s === 'done' && s.v >= 0) done.push(s.v); else if (s.s === 'open') open.push(s.v); }
         const q = E.quantiles(done, open, [0.5])[0.5];
         return { label: L.label, v: q ? q.v : null, lb: q ? q.lowerBound : false, color: L.col, n: done.length };
       }) };
@@ -612,7 +612,7 @@
     const keys = ['A', 'B', 'AB', 'C', 'D', 'E2E', 'PLAN', 'E'];
     const legs = keys.map(k => {
       const M = E.METRICS[k], items = [];
-      for (const ch of st.chains) {
+      for (const ch of E.perPoChains(st.chains, M)) {   // MIRROR-POBUNDLE — supplier / 3PL / shelf once per PO
         const x = M.stage(ch);
         if (x.s === 'done') items.push({ c: ch, v: x.v, kind: (!M.signed && x.v < 0) ? 'oos' : 'done' });
         else if (x.s === 'open') items.push({ c: ch, v: x.v, kind: 'open' });

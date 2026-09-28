@@ -284,9 +284,25 @@
       }
       consUse.sort((a, b) => a - b);
       for (const e of rc.values()) { e.r109.sort((a, b) => a.d - b.d); e.w107 = lotWeighted(e.a107); e.w109 = lotWeighted(e.a109); }
-      /* how many PR lines of this material sit on each PO (a PO can combine PRs) */
+      /* MIRROR-POBUNDLE (aligned with Calibre Tune 5125571, operator decisions
+         2026-09-27). (1) One requisition can carry this material on several lines,
+         all converted to the same PO — that is ONE order with ONE delivery, so its
+         lines become one chain (qty = the lines added up; cancelled only when every
+         line is). Lines with no PO yet stay separate. (2) Buyers bundle several
+         requisitions onto one PO: prsOnPo = how many DIFFERENT PRs of this material
+         sit on the PO; supplier / 3PL / shelf time then count once per PO in every
+         statistic (see perPoChains). */
+      const units = [], byPrPo = new Map();
+      for (const r of prRows) {
+        const k = trim(r.pr) + '|' + trim(r.purchaseOrder);
+        if (trim(r.purchaseOrder) && byPrPo.has(k)) { byPrPo.get(k).push(r); continue; }
+        const u = [r]; units.push(u); if (trim(r.purchaseOrder)) byPrPo.set(k, u);
+      }
       const prsPerPo = new Map();
-      for (const r of prRows) { const po = trim(r.purchaseOrder); if (po) prsPerPo.set(po, (prsPerPo.get(po) || 0) + 1); }
+      for (const r of prRows) { const po = trim(r.purchaseOrder); if (!po) continue; if (!prsPerPo.has(po)) prsPerPo.set(po, new Set()); prsPerPo.get(po).add(trim(r.pr)); }
+      const itemNum = (x) => { const n = parseInt(trim(x), 10); return Number.isFinite(n) ? n : Infinity; };
+      const lineCancelled = (x) => trim(x.deletionIndicator).toLowerCase() === 'true' && trim(x.processingStatus).toUpperCase() === 'N';
+      const seenPr = new Map();
 
       /* receipt-path mix (per PO+material in MB51) */
       for (const [po, e] of rc) {
@@ -334,9 +350,13 @@
       model.mat.set(m, info);
       if (!im) model.checks.noIm.push(m);
 
-      /* ── chains (one per PR line) ── */
+      /* ── chains (one per PR line — lines of one PR on one PO merged) ── */
       const chains = [];
-      for (const r of prRows) {
+      for (let lines of units) {
+        lines = lines.slice().sort((a, b) => itemNum(a.prItem) - itemNum(b.prItem));
+        const r = lines.reduce((a, b) => (String(b.prDate || '') < String(a.prDate || '') ? b : a), lines[0]);   // earliest-dated line
+        const items = lines.map(x => trim(x.prItem)).filter(Boolean);
+        const occ = (seenPr.get(trim(r.pr)) || 0) + 1; seenPr.set(trim(r.pr), occ);
         const prD = dn(r.prDate), relD = dn(r.releaseDate), poD = dn(r.poDate);
         const needD = dn(r.deliveryDate), chgD = dn(r.changedOn);
         const po = trim(r.purchaseOrder);
@@ -348,11 +368,11 @@
            the receipt record for cover and "at the 3PL now". */
         const g107 = e ? e.w107 : null, g109 = e ? e.w109 : null;
         const use  = (e && e.f109 != null) ? firstGE(consUse, e.f109) : null;
-        const cancelled = trim(r.deletionIndicator).toLowerCase() === 'true'
-                       && trim(r.processingStatus).toUpperCase() === 'N';
+        const cancelled = lines.every(lineCancelled);
         const releaseBad = relD == null || (prD != null && relD < prD) || (poD != null && relD > poD);
         const trig = triggerOf(r.creationIndicator);
-        const qty  = num(r.qtyRequested) || 0;
+        const qty  = lines.reduce((sum, x) => sum + (num(x.qtyRequested) || 0), 0);
+        const prsOnPo = po ? ((prsPerPo.get(po) || new Set()).size || 1) : 0;
         const endedNoPo = !po && cancelled;
         const churn = endedNoPo && trig === 'MRP' && chgD != null && prD != null && (chgD - prD) <= S.churnDays;
 
@@ -408,14 +428,14 @@
         else path = 'PR → PO, awaiting receipt';
 
         const c = {
-          material: m, pr: trim(r.pr), prItem: trim(r.prItem), po, trig,
+          material: m, id: trim(r.pr) + '/' + (items[0] || ('#' + occ)), pr: trim(r.pr), prItem: items.join('+'), lines: lines.length, prsOnPo, po, trig,
           prD, relD, poD, g107, g109, use, needD, chgD,
           qty, purchasingGroup: trim(r.purchasingGroup) || '(none)',
           /* MIRROR-WEIGHTED — transparency: split lots per PO, received total, shared PO */
           split107: (e && e.a107 && e.a107.n > 1) ? { n: e.a107.n, first: e.a107.first, last: e.a107.last, qty: e.a107.sumQ } : null,
           split109: (e && e.a109 && e.a109.n > 1) ? { n: e.a109.n, first: e.a109.first, last: e.a109.last, qty: e.a109.sumQ } : null,
-          sharedPo: !!po && (prsPerPo.get(po) || 0) > 1,
-          rcvQty: (e && e.a109 && !((prsPerPo.get(po) || 0) > 1)) ? e.a109.sumQ : null,
+          sharedPo: prsOnPo > 1,
+          rcvQty: (e && e.a109 && !(prsOnPo > 1)) ? e.a109.sumQ : null,
           cancelled, churn, releaseBad, path,
           cancelLag: (endedNoPo && chgD != null && prD != null) ? chgD - prD : null,
           st: { A, B, AB, C, D, E, E2E, PLAN }, planLT: PLANLT,
@@ -649,10 +669,10 @@
     B:    { key:'B',    label:'Buyer (release → PO)',      start:'PR released', end:'PO raised',
             anchor: c => c.prD,  anchorLabel:'PRs created in', stage: c => c.st.B,
             def:'Days from PR release to PO raised — the buyer leg. Anchored on the month the PR was created.' },
-    C:    { key:'C',    label:'Supplier (PO → 3PL)',       start:'PO raised',   end:'arrived at 3PL (107)',
+    C:    { key:'C',    perPo: true, label:'Supplier (PO → 3PL)',       start:'PO raised',   end:'arrived at 3PL (107)',
             anchor: c => c.poD,  anchorLabel:'POs placed in',  stage: c => c.st.C,
             def:'Days from PO raised to the goods arriving at the 3PL (first 107). Anchored on the month the PO was placed. Grouped by manufacturer (standing in for vendor).' },
-    D:    { key:'D',    label:'3PL (3PL → site)',          start:'arrived at 3PL (107)', end:'received at site (109)',
+    D:    { key:'D',    perPo: true, label:'3PL (3PL → site)',          start:'arrived at 3PL (107)', end:'received at site (109)',
             anchor: c => c.g107, anchorLabel:'Goods at 3PL in', stage: c => c.st.D,
             def:'Days from arriving at the 3PL (first 107) to being received at site (first 109). Anchored on the month goods arrived at the 3PL.' },
     E2E:  { key:'E2E',  label:'End to end (PR → site)',    start:'PR created',  end:'received at site (109)',
@@ -661,7 +681,7 @@
     PLAN: { key:'PLAN', label:'Against plan (need-by)',    start:'need-by date', end:'received at site (109)',
             anchor: c => c.prD,  anchorLabel:'PRs created in', stage: c => c.st.PLAN, signed: true,
             def:'Days the site receipt landed after the PR\'s need-by (Delivery Date); negative = early. For MRP PRs the need-by is PR date + SAP\'s planned lead time, so this is actual vs the planned process.' },
-    E:    { key:'E',    label:'Shelf time (site → first use)', start:'received at site (109)', end:'first 261 issue',
+    E:    { key:'E',    perPo: true, label:'Shelf time (site → first use)', start:'received at site (109)', end:'first 261 issue',
             anchor: c => c.g109, anchorLabel:'Received in',   stage: c => c.st.E,
             def:'Days from site receipt to the first work-order issue after it. Long shelf times point at ordering ahead of need.' }
   };
@@ -729,10 +749,29 @@
     return out;
   }
 
+  /* MIRROR-POBUNDLE — the chains that count for a metric. Approval, buying,
+     PR → PO, end to end and need-by are each requisition's own and count per
+     chain; supplier, 3PL and shelf time belong to the PO's delivery, the same for
+     every requisition bundled on it, so they count ONCE PER PO (the earliest
+     requisition stands for the PO; the others are listed with it). Only the
+     chains passed in are grouped, so a segment or window that keeps one of them
+     still counts the delivery once. Same rule as Tune's TracePhase.phaseVals. */
+  function perPoChains(chains, metric){
+    if (!metric || !metric.perPo) return chains;
+    const out = [], seen = new Map();
+    for (const c of chains) {
+      if (!c.po || !(c.prsOnPo > 1)) { out.push(c); continue; }
+      const k = c.material + '|' + c.po, first = seen.get(k);
+      if (!first) { seen.set(k, c); out.push(c); }
+      else if ((c.prD ?? Infinity) < (first.prD ?? Infinity)) { out[out.indexOf(first)] = c; seen.set(k, c); }
+    }
+    return out;
+  }
+
   /* Collect a metric over a chain set: returns buckets by status. */
   function collect(chains, metric){
     const r = { done: [], open: [], oos: [], term: 0, nocov: 0, bad: 0, bypass: 0, na: 0, notdue: 0 };
-    for (const c of chains) {
+    for (const c of perPoChains(chains, metric)) {
       const x = metric.stage(c);
       if (x.s === 'done') {
         if (!metric.signed && x.v < 0) r.oos.push(c); else r.done.push(c);
@@ -769,7 +808,7 @@
 
   function cohorts(chains, metric, provisionalPct, gran){
     const by = new Map();
-    for (const c of chains) {
+    for (const c of perPoChains(chains, metric)) {
       const a = metric.anchor(c); if (a == null) continue;
       const x = metric.stage(c);
       if (!(x.s === 'done' || x.s === 'open' || x.s === 'oos')) continue;
@@ -838,8 +877,7 @@
         const mini = { data: { prHistory: prBy.get(m) || [], mb51: mbBy.get(m) || [] } };
         const theirs = TP.computeChains(mini, m);
         for (const t of theirs) {
-          const r = (prBy.get(m) || []).find(x => trim(x.pr) === t.pr && trim(x.purchaseOrder) === t.po);
-          const k = m + '|' + t.pr + '|' + (r ? trim(r.prItem) : '') + '|' + t.po;
+          const k = m + '|' + t.pr + '|' + (t.prItem != null ? t.prItem : '') + '|' + t.po;   // prItem = the merged lines' items joined with '+' (Tune 5125571)
           const c = mine.get(k);
           out.chains.checked++;
           if (!c) { out.chains.mismatched++; if (out.chains.examples.length < 5) out.chains.examples.push({ material: m, pr: t.pr, why: 'chain missing' }); continue; }
@@ -893,6 +931,7 @@
     rowDelta,
     build, METRICS, BINS_DAYS, BINS_SIGNED, BINS_RATIO, binIndex,
     quantiles, doneQuantiles, collect, cohorts, periodKey, parityCheck, stockSeries,
+    perPoChains,
     DEFAULT_SETTINGS, dn, iso, ym
   });
 })(window);

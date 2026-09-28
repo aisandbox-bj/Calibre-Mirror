@@ -381,6 +381,26 @@ git -C peek push --force-with-lease origin main
 
   <div class="roc-list">
 
+    <!-- v0.3.0-dev follow-up - MIRROR-POBUNDLE - 2026-09-27 -->
+    <article class="roc-entry dev">
+      <div class="head">
+        <span class="ver">v0.3.0</span>
+        <span class="date">2026-09-27</span>
+        <span class="tag dev">dev</span>
+      </div>
+      <h4>v0.3.0-dev follow-up — <b>Bundled POs count the delivery once; lines of one requisition on the same PO are one order</b> (MIRROR-POBUNDLE) — <b>browser-verified; pending operator validation</b></h4>
+      <ul>
+        <li><b>Why:</b> heads-up from the Tune session (Tune <code>5125571</code>, operator decisions 2026-09-27 — "option 2"): buyers bundle requisitions onto one PO, mostly 2, sometimes more than 5.</li>
+        <li><b>Bundled POs:</b> when several requisitions of a material share one PO, <b>supplier, 3PL and shelf time count once for the PO</b> in every statistic — the Mirror box plots, histograms, month-on-month bands, breakdowns, annual progression and the deep-dive durations (the earliest requisition stands for the PO). Approval, buying, PR → PO and end to end stay per requisition. The drill Excel shows "PRs bundled on this PO".</li>
+        <li><b>Merged lines:</b> when one requisition carries the same material on several lines, all on the same PO, those lines are <b>one row</b> — quantities added, cancelled only if every line is. Lines with no PO yet stay separate.</li>
+        <li><b>Tune's chain module re-copied unchanged at <code>5125571</code></b> (PROVENANCE refreshed).</li>
+        <li><b>Effect on the June data:</b> 2,351 → 2,314 requisition rows (47 lines of PR 10003789 on PO 9600006236 → 10 rows); 27 bundled PO / material pairs on 18 materials (Tune's count). Supplier leg: completed 1,082 → 1,014, P90 48 → 38 d, mean 20.9 → 17.9 d; 3PL 1,052 → 984; shelf time 1,001 → 933; PR → PO completed 1,093 → 1,056; end to end completed 1,054 → 1,017, P90 73 → 65 d. No material's median end-to-end lead time changed.</li>
+        <li><b>Checked:</b> the requisitions on each bundled PO never disagree on supplier / 3PL / shelf time, so "earliest requisition stands for the PO" gives exactly Tune's per-PO values — 0 differences across the 18 materials. <b>Parity 2,314 / 2,314 chains</b> · 275 / 275 stock series.</li>
+        <li><b>Not changed (question for the operator):</b> V1 order sizing still compares each requisition's own quantity with the gap to Max at its date; for a bundled PO the ordered total is the sum.</li>
+      </ul>
+      <div class="commit rollback"><b>Rollback.</b> Remote <code>backup/pre-MIRROR-POBUNDLE</code> + <code>checkpoint/pre-MIRROR-POBUNDLE</code>; local <code>_rollback/MIRROR-POBUNDLE-pre/</code>.</div>
+    </article>
+
     <!-- v0.3.0-dev follow-up - MIRROR-WEIGHTED - 2026-09-26 -->
     <article class="roc-entry dev">
       <div class="head">

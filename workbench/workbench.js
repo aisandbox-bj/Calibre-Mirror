@@ -783,7 +783,7 @@
     const bk = state.view + ':' + key;
     const dim = state.breakdownDim[bk] || defDim;
     const groups = new Map();
-    for (const c of chains) {
+    for (const c of E.perPoChains(chains, M)) {   // MIRROR-POBUNDLE — supplier / 3PL / shelf once per PO
       const x = M.stage(c); if (!(x.s === 'done' || x.s === 'open' || x.s === 'oos')) continue;
       const g = groupKeyOf(dim, c);
       let e = groups.get(g); if (!e) { e = { g, done: [], open: [], oos: 0 }; groups.set(g, e); }
@@ -968,7 +968,7 @@
     ['Months with an issue (last 12)', r => r._i.consMonths12], ['Unit cost', r => r._i.map],
     ['PR', r => r.pr], ['PR item', r => r.prItem], ['Created by', r => r.trig], ['PR date', r => xDate(r.prD)], ['PR qty', r => r.qty], ['Released', r => xDate(r.rel)],
     ['PO', r => r.po], ['PO date', r => xDate(r.poD)], ['At 3PL (107, qty-weighted)', r => xDate(r.g107)], ['107 split lots', r => r.lots107 || null],
-    ['At site (109, qty-weighted)', r => xDate(r.g109)], ['109 split lots', r => r.lots109 || null], ['Received at site qty (PO total)', r => r.rcvQty], ['PO shared with other PR lines', r => r.sharedPo || null], ['Need-by', r => xDate(r.need)],
+    ['At site (109, qty-weighted)', r => xDate(r.g109)], ['109 split lots', r => r.lots109 || null], ['Received at site qty (PO total)', r => r.rcvQty], ['PRs bundled on this PO', r => r.sharedPo || null], ['PR lines merged into this row', r => r.lines > 1 ? r.lines : null], ['Need-by', r => xDate(r.need)],
     ['Phase', r => r.phase], ['Days in phase', r => r.v], ['Status', r => r.st === 'open' ? 'in flight (days = age so far)' : r.st === 'oos' ? 'out of sequence' : r.st === 'done' ? 'completed' : r.st],
     ['Path', r => r.path], ['Days past SAP need-by (indicative)', r => r.overdue > 0 ? r.overdue : null]
   ];
@@ -1013,7 +1013,8 @@
       ['Continuous use', 'Issued (261 / 201 / 221 / 291 / 551) in at least 6 of the 12 months to the data date.'],
       ['107 / 109', '107 = received at the 3PL (stock, blocked); 109 = received at site (stock available).'],
       ['Split deliveries', 'A PO received in several lots uses the quantity-weighted 107 / 109 date in every lead time (same rule as Calibre Tune); the lots columns show how many and first → last.'],
-      ['First use', 'The first work-order (261) or cost-centre (201) issue on or after the first site-receipt lot.']
+      ['First use', 'The first work-order (261) or cost-centre (201) issue on or after the first site-receipt lot.'],
+      ['Bundled POs', 'When several requisitions share one PO, supplier, 3PL and shelf time count once for the PO (the earliest requisition stands for it); approval and buying count per requisition. Lines of one requisition on the same PO are one row (quantities added). Same rules as Calibre Tune.']
     ], [26, 90]);
     const safe = (x) => String(x).replace(/[^A-Za-z0-9_.-]+/g, '_').replace(/_+/g, '_').slice(0, 80);
     XLSX.writeFile(wb, `${safe(dsName())}-${safe(d.title)}.xlsx`, { compression: true });
@@ -1045,7 +1046,7 @@
                  po: c.po, poD: iso(c.poD), g107: iso(c.g107), g109: iso(c.g109), need: iso(c.needD), v: x.v, st: (x.s === 'done' && !M.signed && x.v < 0) ? 'oos' : x.s,
                  overdue: overdue > 0 ? overdue : null, path: c.path,
                  lots107: c.split107 ? `${c.split107.n} lots ${iso(c.split107.first)} → ${iso(c.split107.last)}` : '', lots109: c.split109 ? `${c.split109.n} lots ${iso(c.split109.first)} → ${iso(c.split109.last)}` : '',
-                 rcvQty: c.rcvQty, sharedPo: c.sharedPo ? 'yes' : '' };
+                 rcvQty: c.rcvQty, sharedPo: c.prsOnPo > 1 ? c.prsOnPo + ' PRs' : '', lines: c.lines };
       },
       sort: { key: 'v', dir: -1 }
     },
@@ -1638,6 +1639,7 @@
       <li><b>Cancelled</b> = deletion flag + processing status N. <b>MRP churn</b> = MRP-created, no PO, cancelled within ${m.settings.churnDays} d (Changed On as the cancel date).</li>
       <li><b>Creation indicator:</b> B = MRP · R = manual · blank = unknown (not assumed MRP).</li>
       <li><b>Manufacturer stands in for vendor.</b> Order quantity = PR quantity (no PO data).</li>
+      <li><b>Split deliveries</b> use the quantity-weighted 107 / 109 date; <b>first use</b> = the first 261 or 201 issue after the first site receipt. <b>Bundled POs:</b> when several requisitions share one PO, supplier, 3PL and shelf time count once for the PO; approval and buying count per requisition. <b>Lines of one requisition on the same PO are one row</b> (quantities added) — so "PR lines" here can be fewer than rows in the PR History file. Same rules as Calibre Tune.</li>
       <li><b>Months are provisional</b> until ${Math.round(m.settings.provisionalPct * 100)}% of their items have closed; open items are counted at their age as lower bounds (“≥”).</li>
     </ul>`);
 
@@ -1689,7 +1691,7 @@
     const years = [...new Set(chains.map(x => x.prD != null ? iso(x.prD).slice(0, 4) : null).filter(Boolean))].sort();
     const row = (label, cs) => ({ label, n: cs.length, legs: ANNUAL_LEGS.map(([k, color]) => {
       const M = E.METRICS[k], done = [], open = [];
-      for (const c of cs) { const x = M.stage(c); if (x.s === 'done' && x.v >= 0) done.push(x.v); else if (x.s === 'open') open.push(x.v); }
+      for (const c of E.perPoChains(cs, M)) { const x = M.stage(c); if (x.s === 'done' && x.v >= 0) done.push(x.v); else if (x.s === 'open') open.push(x.v); }
       const q = E.quantiles(done, open, [0.5])[0.5];
       return { label: M.label, v: q ? q.v : null, lb: q ? q.lowerBound : false, color, n: done.length };
     }) });

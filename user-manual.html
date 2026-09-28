@@ -98,6 +98,7 @@ table.m td:first-child{ color:var(--text-pri); white-space:nowrap; }
       <li><b>Pick-list tiles</b> (manufacturer, MRP type, material group, purchasing group, stock status) — search, tick values, choose <b>Include</b> or <b>Exclude</b>.</li>
       <li><b>Number tiles can exclude too</b> — e.g. <i>Months of cover → Range, min 12 → Exclude</i> leaves the over-stocked parts out of every view; set it back to Include to look at only them. <b>Months of cover</b> = stock on hand ÷ average monthly use over the last 12 months; <i>None</i> = not moving (no use in 12 months).</li>
       <li><b>Split deliveries</b> (a PO received in several lots) use the <b>quantity-weighted</b> 107 / 109 date in every lead time — the same rule as Calibre Tune. <b>First use</b> is the first work-order (261) or cost-centre (201) issue on or after the first site receipt.</li>
+      <li><b>Bundled POs:</b> when several requisitions share one PO, supplier, 3PL and shelf time count <b>once for the PO</b>; approval and buying count per requisition. Several lines of one requisition on the same PO show as <b>one row</b> with the quantities added.</li>
       <li><b>Material / text</b> — number or description contains.</li>
       <li><b>PR trigger</b> — MRP-created, manual or unknown; applies to PR lines, not to stock events.</li>
     </ul>
